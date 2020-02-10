@@ -16,7 +16,11 @@ let from_just op msg = match op with
 (* MakeVersioned is a functor which takes Config and Atom as arguments *)
 module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
   module OM = Mlist.Make(Atom)
-  module K = Irmin.Hash.SHA1
+  module K = struct
+    include Irmin_git.Mem.Hash
+    type t = string
+    let t = Irmin.Type.string
+  end
 
   type targ = (Atom.t * K.t)
   type vt = 
@@ -59,7 +63,7 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
     (* storage backhend: Append-only store *)
   module AO_store = struct
     (* Immutable collection of all versionedt *)
-    module S = Irmin_git.AO(Git_unix.Mem)(AO_value)
+    module S = Irmin_git.Content_addressable(Irmin_git.Mem)(AO_value)
     include S
 
     let create config =
@@ -67,8 +71,12 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
           "level" Irmin.Private.Conf.(some int) None
       in
       let root = Irmin.Private.Conf.get config Irmin.Private.Conf.root in
-      let level = Irmin.Private.Conf.get config level in
-      Git_unix.Mem.create ?root ?level ()
+      let compression = Irmin.Private.Conf.get config level in
+      match root with
+      | Some pathr -> (match Fpath.of_string pathr with
+          | Ok path -> Irmin_git.Mem.v path ?compression
+          | _ -> failwith "Couldn't derive path from string")
+      | None -> failwith "Path unspecified"
 
     (* Somehow pulls the config set by Store.init *)
     (* And creates a Git backend *)
@@ -79,7 +87,9 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
     let add t v = 
       S.add t v >>= fun k ->
       (!on_add) k v >>= fun _ ->
-      Lwt.return k
+      Lwt.return @@ Irmin_git.Mem.Hash.to_raw_string k
+
+    let find t k = find t (Irmin_git.Mem.Hash.of_raw_string k)
 
     let rec add_adt t (a:OM.t) : K.t Lwt.t =
       add t =<<
@@ -116,23 +126,25 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
   module BC_value: IRMIN_STORE_VALUE with type t = vt = struct
     include AO_value
 
+    let old_to_new = function
+      | Ok v -> (ref true, v)
+      | _ -> failwith "Old could not become new."
+
     let of_adt (a:OM.t) : t Lwt.t  =
-      AO_store.create () >>= fun ao_store -> 
-      let aostore_add adt =
-        AO_store.add_adt ao_store adt in
+      AO_store.create () >>= fun ao_store ->
+      let ao = old_to_new ao_store in 
       match a with
        | n::rt -> 
-         (aostore_add rt >>= fun rt' ->
+         (AO_store.add_adt ao rt >>= fun rt' ->
           Lwt.return @@ Cons(n,rt'))
        | [] -> Lwt.return @@ Nil
 
     let to_adt (t:t) : OM.t Lwt.t =
       AO_store.create () >>= fun ao_store ->
-      let aostore_read k =
-        AO_store.read_adt ao_store k in
+      let ao = old_to_new ao_store in
       match t with
         | Cons (n,rt) ->
-          (aostore_read rt >>= fun rt' ->
+          (AO_store.read_adt ao rt >>= fun rt' ->
            Lwt.return @@ n::rt')
         | Nil -> Lwt.return []
  
@@ -185,7 +197,7 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
 
     let get_branch r ~branch_name = Store.of_branch r branch_name
 
-    let merge s ~into = Store.merge s ~into
+    let merge s ~into = Store.merge s into
 
     (*let update t k v = Store.set t k v*)
 
@@ -247,7 +259,7 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
           BC_store.master repo >>= fun m_br -> 
           BC_value.of_adt v >>= fun (v':BC_value.t) ->
           BC_store.update ~msg:"initial version" 
-                          m_br path v' >>= fun () ->
+                          m_br path v' >>= fun _ ->
           BC_store.clone m_br "1_local" >>= fun t_br ->
           let st = {master=m_br; parent=m_br; 
                     local=t_br; name="1"; next_id=1} in
@@ -265,7 +277,7 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
         let new_st = { master = m_br; parent = p_br; 
                        local = t_br; name = child_name; 
                        next_id = 1} in
-        Lwt.async (fun () -> m new_st);
+        Lwt.async (fun () -> Lwt.map ignore (m new_st));
         Lwt.return (t_br, { st with next_id = (st.next_id + 1) })
 
 
@@ -287,9 +299,10 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
       (match v with 
        | None -> Lwt.return ()
        | Some v -> 
-         BC_value.of_adt v >>= fun v' -> 
-         BC_store.update ~msg:"Committing local state" 
-                         st.local path v') >>= fun () ->
+         Lwt.map ignore
+         (BC_value.of_adt v >>= fun v' -> 
+          BC_store.update ~msg:"Committing local state" 
+                         st.local path v')) >>= fun () ->
       (* 2. Merge parent to the local branch *)
       let cinfo = info "Merging parent into local" in
       Lwt_unix.sleep @@ 0.1 *. (float @@ Random.int 5) >>= fun _ ->
