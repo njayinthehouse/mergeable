@@ -1,5 +1,4 @@
-open Lwt.Infix
-open Irmin_unix
+open Lwt
 open Printf
 
 (* Config module has three functions root, shared and init. *)
@@ -63,10 +62,10 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
     (* storage backhend: Append-only store *)
   module AO_store = struct
     (* Immutable collection of all versionedt *)
-    module S = Irmin_git.Content_addressable(Irmin_git.Mem)(AO_value)
+    module S = Irmin_git.Content_addressable (Irmin_scylla.GitStore) (AO_value)
     include S
 
-    let create config =
+    (*let create config =
       let level = Irmin.Private.Conf.key ~doc:"The Zlib compression level."
           "level" Irmin.Private.Conf.(some int) None
       in
@@ -76,20 +75,23 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
       | Some pathr -> (match Fpath.of_string pathr with
           | Ok path -> Irmin_git.Mem.v path ?compression
           | _ -> failwith "Couldn't derive path from string")
-      | None -> failwith "Path unspecified"
+      | None -> failwith "Path unspecified"*)
 
     (* Somehow pulls the config set by Store.init *)
     (* And creates a Git backend *)
-    let create () = create @@ Irmin_git.config Config.shared
+
+    let create () = 
+      let root = Fpath.v "/" in
+      Irmin_scylla.GitStore.create root
 
     let on_add = ref (fun k v -> Lwt.return ())
 
     let add t v = 
       S.add t v >>= fun k ->
       (!on_add) k v >>= fun _ ->
-      Lwt.return @@ Irmin_git.Mem.Hash.to_raw_string k
+      Lwt.return @@ Digestif.SHA1.to_raw_string k
 
-    let find t k = find t (Irmin_git.Mem.Hash.of_raw_string k)
+    let find t k = find t (Digestif.SHA1.of_raw_string k)
 
     let rec add_adt t (a:OM.t) : K.t Lwt.t =
       add t =<<
@@ -128,7 +130,7 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
 
     let old_to_new = function
       | Ok v -> (ref true, v)
-      | _ -> failwith "Old could not become new."
+      | Error e -> failwith "Old failed to become new"
 
     let of_adt (a:OM.t) : t Lwt.t  =
       AO_store.create () >>= fun ao_store ->
@@ -255,15 +257,23 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
     let with_init_version_do (v: OM.t) (m: 'a t) =
       Lwt_main.run 
         begin
+          Format.printf "1\n"; 
           BC_store.init () >>= fun repo -> 
+          Format.printf "2\n"; 
           BC_store.master repo >>= fun m_br -> 
+          Format.printf "3\n"; 
           BC_value.of_adt v >>= fun (v':BC_value.t) ->
+          Format.printf "4\n"; 
           BC_store.update ~msg:"initial version" 
                           m_br path v' >>= fun _ ->
+          Format.printf "5\n"; 
           BC_store.clone m_br "1_local" >>= fun t_br ->
+          Format.printf "6\n"; 
           let st = {master=m_br; parent=m_br; 
                     local=t_br; name="1"; next_id=1} in
-          m st >>= fun (a,_) -> Lwt.return a
+          m st >>= fun (a,_) -> 
+          Format.printf "7\n"; 
+          Lwt.return a
         end
 
       let fork_version ?parent (m : 'a t) = fun (st : st) ->
@@ -286,9 +296,12 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
       let bs = Fmt.to_to_string BC_store.Status.pp status in 
       let ps = BC_store.string_of_path path in 
       let _ = printf "Branch: %s, path: %s\n" bs ps in*)
+      Format.printf "Debug latest 1\n";
       BC_store.read st.local path >>= fun (vop:BC_value.t option) ->
+      Format.printf "Debug latest 2\n";
       let v = from_just vop "get_latest_version"  in
       BC_value.to_adt v >>= fun td ->
+      Format.printf "Debug latest 3\n";
       Lwt.return (td,st)
 
     let set_parent parent = fun (st:st) ->

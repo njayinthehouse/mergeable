@@ -3,4 +3,7 @@
 *.o
 *.*.swp
 *.csv
-monkey
+dune-project
+.merlin
+log
+_build/

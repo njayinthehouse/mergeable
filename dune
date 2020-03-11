@@ -1,0 +1,5 @@
+(executable
+  (name monkey)
+  (libraries irmin irmin-unix irmin-scylla)
+  (flags (-g))
+  (link_flags (-cclib -lstdc++ -cclib -lssl -cclib -lcrypto)))
