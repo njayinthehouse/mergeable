@@ -252,7 +252,10 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
     let return (x : 'a) : 'a t = fun st -> Lwt.return (x,st)
 
     let bind (m1: 'a t) (f: 'a -> 'b t) : 'b t = 
-      fun st -> (m1 st >>= fun (a,st') -> f a st')
+      fun st -> 
+        let promise = m1 st in
+        let ret = Lwt_unix.run promise in
+        ret >>= fun (a,st') -> f a st'
 
     let with_init_version_do (v: OM.t) (m: 'a t) =
       Lwt_main.run 

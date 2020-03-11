@@ -138,7 +138,10 @@ let experiment_f (fp: out_channel) : unit =
     Vpst.with_init_version_do []
       begin
         Format.printf "Debug3\n";
-        Vpst.fork_version (work_loop ()) >>= fun br1 ->
+        let p = work_loop () in
+        let l = Lwt_unix.run p in
+        Format.printf "Debug4\n";
+        Vpst.fork_version (Vpst.return l) >>= fun br1 ->
         Vpst.fork_version ~parent:br1 (work_loop ()) >>= fun br2 ->
         Vpst.set_parent br2 >>= fun () ->
         (work_loop ()) >>= fun _ ->
