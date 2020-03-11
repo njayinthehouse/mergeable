@@ -107,8 +107,10 @@ let loop_iter i (pre: Mlist.t Vpst.t) : Mlist.t Vpst.t =
 let n_done = ref 0
 
 let work_loop () : Mlist.t Vpst.t = 
+  Format.printf "Debug start workloop\n";
+  Vpst.get_latest_version () >>= fun version ->
   Format.printf "Debug before fold\n";
-  U.fold loop_iter !_n_rounds (Vpst.get_latest_version ()) >>= fun v ->
+  U.fold loop_iter !_n_rounds (Vpst.return version) >>= fun v ->
   Format.printf "Debug after fold\n";
   n_done := !n_done + 1;
   Vpst.return v

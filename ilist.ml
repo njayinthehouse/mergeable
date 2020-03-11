@@ -291,7 +291,9 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
         Lwt.return (t_br, { st with next_id = (st.next_id + 1) })
 
 
-    let get_latest_version () : OM.t t = fun (st: st) ->
+    let get_latest_version () : OM.t t = 
+      Format.printf "Debug latest 0\n";
+      let ret = fun (st: st) ->
       (*let status = BC_store.status st.local in
       let bs = Fmt.to_to_string BC_store.Status.pp status in 
       let ps = BC_store.string_of_path path in 
@@ -303,6 +305,9 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
       BC_value.to_adt v >>= fun td ->
       Format.printf "Debug latest 3\n";
       Lwt.return (td,st)
+      in
+      Format.printf "Debug latest end\n";
+      ret
 
     let set_parent parent = fun (st:st) ->
       Lwt.return ((), {st with parent=parent})
