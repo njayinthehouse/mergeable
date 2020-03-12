@@ -252,35 +252,43 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
     let return (x : 'a) : 'a t = fun st -> Lwt.return (x,st)
 
     let bind (m1: 'a t) (f: 'a -> 'b t) : 'b t = 
+      Format.eprintf "Debug start bind\n";
+      let f = 
       fun st -> 
-        let promise = m1 st in
+        (*let promise = m1 st in
         let ret = Lwt_main.run promise in
-        Lwt.return ret >>= fun (a,st') -> 
+        Lwt.return ret*)
+        m1 st >>= fun (a,st') -> 
         f a st'
+      in
+      Format.eprintf "Debug end bind\n";
+      f
 
     let with_init_version_do (v: OM.t) (m: 'a t) =
       Lwt_main.run 
         begin
-          Format.printf "1\n"; 
+          Format.eprintf "1\n"; 
           BC_store.init () >>= fun repo -> 
-          Format.printf "2\n"; 
+          Format.eprintf "2\n"; 
           BC_store.master repo >>= fun m_br -> 
-          Format.printf "3\n"; 
+          Format.eprintf "3\n"; 
           BC_value.of_adt v >>= fun (v':BC_value.t) ->
-          Format.printf "4\n"; 
+          Format.eprintf "4\n"; 
           BC_store.update ~msg:"initial version" 
                           m_br path v' >>= fun _ ->
-          Format.printf "5\n"; 
+          Format.eprintf "5\n"; 
           BC_store.clone m_br "1_local" >>= fun t_br ->
-          Format.printf "6\n"; 
+          Format.eprintf "6\n"; 
           let st = {master=m_br; parent=m_br; 
                     local=t_br; name="1"; next_id=1} in
           m st >>= fun (a,_) -> 
-          Format.printf "7\n"; 
+          Format.eprintf "7\n"; 
           Lwt.return a
         end
 
-      let fork_version ?parent (m : 'a t) = fun (st : st) ->
+      let fork_version ?parent (m : 'a t) = 
+        Format.eprintf "Debug start fork\n";
+        let r = fun (st : st) ->
         let child_name =
           st.name ^ ("_" ^ (string_of_int st.next_id)) in
         let m_br = st.master in
@@ -293,24 +301,27 @@ module MakeVersioned (Config: Config) (Atom: Mlist.ATOM) = struct
                        next_id = 1} in
         Lwt.async (fun () -> Lwt.map ignore (m new_st));
         Lwt.return (t_br, { st with next_id = (st.next_id + 1) })
+        in
+        Format.eprintf "Debug end fork\n";
+        r
 
 
     let get_latest_version () : OM.t t = 
-      Format.printf "Debug latest 0\n";
+      Format.eprintf "Debug latest 0\n";
       let ret = fun (st: st) ->
       (*let status = BC_store.status st.local in
       let bs = Fmt.to_to_string BC_store.Status.pp status in 
       let ps = BC_store.string_of_path path in 
       let _ = printf "Branch: %s, path: %s\n" bs ps in*)
-      Format.printf "Debug latest 1\n";
+      Format.eprintf "Debug latest 1\n";
       BC_store.read st.local path >>= fun (vop:BC_value.t option) ->
-      Format.printf "Debug latest 2\n";
+      Format.eprintf "Debug latest 2\n";
       let v = from_just vop "get_latest_version"  in
       BC_value.to_adt v >>= fun td ->
-      Format.printf "Debug latest 3\n";
+      Format.eprintf "Debug latest 3\n";
       Lwt.return (td,st)
       in
-      Format.printf "Debug latest end\n";
+      Format.eprintf "Debug latest end\n";
       ret
 
     let set_parent parent = fun (st:st) ->

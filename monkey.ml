@@ -17,7 +17,7 @@ module U = struct
 
   let fold f n b = 
     let rec fold_aux f i b =
-      Format.printf "Debug folc - i = %d, n = %d\n" i n;
+      Format.eprintf "Debug folc - i = %d, n = %d\n" i n;
       if i >= n then b 
       else fold_aux f (i+1) @@ f i b in
     fold_aux f 0 b
@@ -107,11 +107,13 @@ let loop_iter i (pre: Mlist.t Vpst.t) : Mlist.t Vpst.t =
 let n_done = ref 0
 
 let work_loop () : Mlist.t Vpst.t = 
-  Format.printf "Debug start workloop\n";
+  let () = Format.eprintf "Debug start workloop\n" in
   Vpst.get_latest_version () >>= fun version ->
-  Format.printf "Debug before fold\n";
+  let () = Format.eprintf "Debug before fold\n" in
+  flush stdout; 
   U.fold loop_iter !_n_rounds (Vpst.return version) >>= fun v ->
-  Format.printf "Debug after fold\n";
+  let () = Format.eprintf "Debug after fold\n" in
+  flush stdout; 
   n_done := !n_done + 1;
   Vpst.return v
 
@@ -132,19 +134,20 @@ let rec wait_till_done () : unit Vpst.t =
 
 let experiment_f (fp: out_channel) : unit =
   begin
-    Format.printf "Debug1\n";
+    Format.eprintf "Debug1\n";
     CInit.init ();
-    Format.printf "Debug2\n";
+    Format.eprintf "Debug2\n";
     Vpst.with_init_version_do []
       begin
-        Format.printf "Debug3\n";
+        Format.eprintf "Debug3\n";
         Vpst.fork_version (work_loop ()) >>= fun br1 ->
+        Format.eprintf "Debugdfadfsa\n";
         Vpst.fork_version ~parent:br1 (work_loop ()) >>= fun br2 ->
         Vpst.set_parent br2 >>= fun () ->
         (work_loop ()) >>= fun _ ->
         wait_till_done ()
       end;
-    Format.printf "Debug Async I think?\n";
+    Format.eprintf "Debug Async I think?\n";
     let mtime = !Ilist.merge_time in
     let ctime = !comp_time in
     let stime = !sync_time in
@@ -175,6 +178,7 @@ let main () =
     else Random.self_init ();
     let fp = open_out_gen [Open_append; Open_creat] 
               0o777 "results.csv" in
+    Format.eprintf "Debug experiment f\n";
     experiment_f fp
   end;;
 
